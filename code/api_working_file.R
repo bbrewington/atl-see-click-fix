@@ -154,5 +154,5 @@ entire_perimeter_comments2 <-
 
 write_rds(entire_perimeter_comments2, "entire_perimeter_comments2_20180708.rds")
 
-write_csv(entire_perimeter_comments2, "ATL_seeclickfix_comments_20180708.csv", na = "")
-write_csv(entire_perimeter$parsed_data, "ATL_seeclickfix_issues_20190518.csv", na = "")
+write_csv(entire_perimeter_comments2, "processed data/ATL_seeclickfix_comments_20180708.csv", na = "")
+write_csv(entire_perimeter$parsed_data, "processed data/ATL_seeclickfix_issues_20190518.csv", na = "")
