@@ -57,7 +57,14 @@ get_issues_in_bbox <- function(min_lat, min_lng, max_lat, max_lng){
   if(num_pages > 1){
     for(i in 2:num_pages){
       cat(i, "of", num_pages, "\n")
-      temp_list[[i]] <- content(GET(temp_list[[i-1]]$metadata$pagination$next_page_url))
+      temp_api_response <- GET(temp_list[[i-1]]$metadata$pagination$next_page_url)
+      if(temp_api_response$status_code == 429) {
+        sleep_seconds <- as.numeric(temp_api_response$headers$`retry-after`)
+        cat("Error code 429 too many requests: waiting", sleep_seconds, "seconds", "\n")
+        Sys.sleep(sleep_seconds+2)
+        temp_api_response <- GET(temp_list[[i-1]]$metadata$pagination$next_page_url)
+      }
+      temp_list[[i]] <- content(temp_api_response)
       return_df <- bind_rows(return_df, map_df(temp_list[[i]]$issues, get_issue_attributes))
     }
   }
@@ -73,6 +80,7 @@ get_comments <- function(parsed_data){
   for(i in 1:num_rows){
     cat("Getting Comment", i, "of", num_rows, "\n")
     comments_list[[i]] <- content(GET(parsed_data$comment_url[i]))
+    Sys.sleep(3.1)
   }
   
   get_comment_element <- function(comment_subgroup){
@@ -109,12 +117,12 @@ get_atl311_issue <- function(issue_id){
 }
 
 # Test bbox1: couple blocks around jackson st bridge (50 issues as of 7/8)
-min_lat=33.755451; min_lng=-84.380225; max_lat=33.763122; max_lng=-84.369582
-test1 <- get_issues_in_bbox(min_lat, min_lng, max_lat, max_lng)
+# min_lat=33.755451; min_lng=-84.380225; max_lat=33.763122; max_lng=-84.369582
+# test1 <- get_issues_in_bbox(min_lat, min_lng, max_lat, max_lng)
 # Test bbox2: most of intown ATL
-min_lng = -84.417175; min_lat = 33.739412; max_lng = -84.344734; max_lat = 33.791071
-test2 <- get_issues_in_bbox(min_lat, min_lng, max_lat, max_lng)
-test2_comments <- get_comments(test2$parsed_data)
+# min_lng = -84.417175; min_lat = 33.739412; max_lng = -84.344734; max_lat = 33.791071
+# test2 <- get_issues_in_bbox(min_lat, min_lng, max_lat, max_lng)
+# test2_comments <- get_comments(test2$parsed_data)
 
 # Test bbox3: entire ATL perimeter
 min_lng=-84.510559; min_lat=33.615345; max_lng=-84.222168; max_lat=33.928131
@@ -147,4 +155,4 @@ entire_perimeter_comments2 <-
 write_rds(entire_perimeter_comments2, "entire_perimeter_comments2_20180708.rds")
 
 write_csv(entire_perimeter_comments2, "ATL_seeclickfix_comments_20180708.csv", na = "")
-write_csv(entire_perimeter$parsed_data, "ATL_seeclickfix_issues_20180708.csv", na = "")
+write_csv(entire_perimeter$parsed_data, "ATL_seeclickfix_issues_20190518.csv", na = "")
