@@ -16,6 +16,7 @@ null_to_na <- function(x, data_type){
 
 get_issues_in_bbox <- function(min_lat, min_lng, max_lat, max_lng){
   get_issue_attributes <- 
+    # given an issue (), extract attributes out of API response JSON / R List
     function(issue){
       data_frame(
         id = issue$id,
@@ -36,9 +37,9 @@ get_issues_in_bbox <- function(min_lat, min_lng, max_lat, max_lng){
         updated_at = ymd_hms(null_to_na(issue$updated_at, "character"))
       )
     }
-  get_num_comments <- function(comment_url){
-    GET(comment_url) %>% content() %>% .$comments %>% length() %>% as.integer()
-  }
+  #get_num_comments <- function(comment_url){
+  #  GET(comment_url) %>% content() %>% .$comments %>% length() %>% as.integer()
+  #}
   
   # Get initial api response
   # Extract num pages
@@ -48,8 +49,13 @@ get_issues_in_bbox <- function(min_lat, min_lng, max_lat, max_lng){
     paste0("https://seeclickfix.com/api/v2/issues", 
            "?min_lat=", min_lat, "&min_lng=", min_lng,
            "&max_lat=", max_lat, "&max_lng=", max_lng)
+  # initial: parsed JSON into R List of values from above page
   initial <- content(GET(initial_url))
+  # return_df: use purrr:map_df to loop through each issue on 1st page
+  # gives data frame with one row per issue, one column per attribute
   return_df <- map_df(initial$issues, get_issue_attributes)
+  cat("Writing return_df to rds, i=", 1, "\n")
+  write_rds(return_df, paste0("processed data/api_working_file/return_df_", 1, ".rds"))
   num_pages <- initial$metadata$pagination$pages
   temp_list <- vector(mode = "list", length = num_pages)
   cat(paste0(1, " of ", num_pages), "\n")
@@ -66,42 +72,44 @@ get_issues_in_bbox <- function(min_lat, min_lng, max_lat, max_lng){
       }
       temp_list[[i]] <- content(temp_api_response)
       return_df <- bind_rows(return_df, map_df(temp_list[[i]]$issues, get_issue_attributes))
+      cat("Writing return_df to rds, i=", i, "\n")
+      write_rds(return_df, paste0("processed data/api_working_file/return_df_", i, ".rds"))
     }
   }
   
-  return_df$num_comments <- map_int(return_df$comment_url, get_num_comments)
+  #return_df$num_comments <- map_int(return_df$comment_url, get_num_comments)
   
   return(list(raw_data = temp_list, parsed_data = return_df))
 }
 
-get_comments <- function(parsed_data){
-  num_rows <- nrow(parsed_data)
-  comments_list <- vector(mode = "list", length = num_rows)
-  for(i in 1:num_rows){
-    cat("Getting Comment", i, "of", num_rows, "\n")
-    comments_list[[i]] <- content(GET(parsed_data$comment_url[i]))
-    Sys.sleep(3.1)
-  }
-  
-  get_comment_element <- function(comment_subgroup){
-    map_df(comment_subgroup$comments, 
-           ~data_frame(
-             issue_url = null_to_na(.$issue_url, "character"),
-             comment_text = null_to_na(.$comment, "character"),
-             comment_created_at = null_to_na(.$created_at, "character"),
-             comment_updated_at = null_to_na(.$updated_at, "character"),
-             commenter_id = null_to_na(.$commenter$id, "integer"),
-             commenter_name = null_to_na(.$commenter$name, "character"),
-             commenter_role = null_to_na(.$commenter$role, "character"),
-             comment_media_image_full = null_to_na(.$media$image_full, "character"),
-             comment_media_image_square = null_to_na(.$media$image_square, "character")
-           ))
-  }
-  
-  comments_parsed <- map_df(comments_list, get_comment_element)
-
-  return(list(comments_raw = comments_list, comments_parsed = comments_parsed))
-}
+# get_comments <- function(parsed_data){
+#   num_rows <- nrow(parsed_data)
+#   comments_list <- vector(mode = "list", length = num_rows)
+#   for(i in 1:num_rows){
+#     cat("Getting Comment", i, "of", num_rows, "\n")
+#     comments_list[[i]] <- content(GET(parsed_data$comment_url[i]))
+#     Sys.sleep(3.1)
+#   }
+#   
+#   get_comment_element <- function(comment_subgroup){
+#     map_df(comment_subgroup$comments, 
+#            ~data_frame(
+#              issue_url = null_to_na(.$issue_url, "character"),
+#              comment_text = null_to_na(.$comment, "character"),
+#              comment_created_at = null_to_na(.$created_at, "character"),
+#              comment_updated_at = null_to_na(.$updated_at, "character"),
+#              commenter_id = null_to_na(.$commenter$id, "integer"),
+#              commenter_name = null_to_na(.$commenter$name, "character"),
+#              commenter_role = null_to_na(.$commenter$role, "character"),
+#              comment_media_image_full = null_to_na(.$media$image_full, "character"),
+#              comment_media_image_square = null_to_na(.$media$image_square, "character")
+#            ))
+#   }
+#   
+#   comments_parsed <- map_df(comments_list, get_comment_element)
+# 
+#   return(list(comments_raw = comments_list, comments_parsed = comments_parsed))
+# }
 
 get_atl311_issue <- function(issue_id){
   require(rvest); require(tidyverse)
@@ -127,13 +135,13 @@ get_atl311_issue <- function(issue_id){
 # Test bbox3: entire ATL perimeter
 min_lng=-84.510559; min_lat=33.615345; max_lng=-84.222168; max_lat=33.928131
 entire_perimeter <- get_issues_in_bbox(min_lat, min_lng, max_lat, max_lng)
-entire_perimeter_comments <- get_comments(entire_perimeter$parsed_data)
-atl311_request_comments <- 
-  entire_perimeter_comments[["comments_parsed"]] %>% 
-  filter(str_detect(commenter_name, "311") & str_detect(comment_text, "\\d{9,}")) %>%
-  mutate(service_request_id = str_extract(comment_text, "\\d{9,}"))
-atl311_requests <- atl311_request_comments %>% select(service_request_id) %>% distinct()
-atl311_scrape_list <- vector(mode = "list", length = nrow(atl311_requests))
+# entire_perimeter_comments <- get_comments(entire_perimeter$parsed_data)
+# atl311_request_comments <- 
+#   entire_perimeter_comments[["comments_parsed"]] %>% 
+#   filter(str_detect(commenter_name, "311") & str_detect(comment_text, "\\d{9,}")) %>%
+#   mutate(service_request_id = str_extract(comment_text, "\\d{9,}"))
+# atl311_requests <- atl311_request_comments %>% select(service_request_id) %>% distinct()
+# atl311_scrape_list <- vector(mode = "list", length = nrow(atl311_requests))
 for(i in seq_along(atl311_scrape_list)){
   cat("Getting ATL311 Issue", i, "of", length(atl311_scrape_list), "\n")
   atl311_scrape_list[[i]] <- get_atl311_issue(atl311_requests$service_request_id[i])
@@ -152,7 +160,9 @@ entire_perimeter_comments2 <-
   left_join(atl311_issue_status, 
             by = c("service_request_id" = "Service Request #"))
 
-write_rds(entire_perimeter_comments2, "entire_perimeter_comments2_20180708.rds")
+# write_rds(entire_perimeter_comments2, "entire_perimeter_comments2_20180708.rds")
+write_rds(entire_perimeter_comments2, "entire_perimeter_comments2_20191116.rds")
 
-write_csv(entire_perimeter_comments2, "processed data/ATL_seeclickfix_comments_20180708.csv", na = "")
-write_csv(entire_perimeter$parsed_data, "processed data/ATL_seeclickfix_issues_20190518.csv", na = "")
+# write_csv(entire_perimeter_comments2, "processed data/ATL_seeclickfix_comments_20180708.csv", na = "")
+# write_csv(entire_perimeter$parsed_data, "processed data/ATL_seeclickfix_issues_20190518.csv", na = "")
+write_csv(entire_perimeter$parsed_data, "processed data/ATL_seeclickfix_issues_20191119.csv", na = "")
